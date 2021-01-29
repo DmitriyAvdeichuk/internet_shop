@@ -1,14 +1,16 @@
-import sys
-from PIL import Image
 from django.db import models
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-from django.core.files.uploadedfile import InMemoryUploadedFile
 
-from io import BytesIO
+from django.urls import reverse
 
 User = get_user_model()
+
+
+def get_product_url(obj, viewname):
+    ct_model = obj.__class__.meta.model_name
+    return reverse(viewname, kwargs={'ct_model': ct_model, 'slug': obj.slug})
 
 
 class MinResolutionErrorException(Exception):
@@ -68,28 +70,6 @@ class Product(models.Model):
     def __str__(self):
         return self.title
 
-    def save(self, *args, **kwargs):
-        # image = self.image
-        # img = Image.open(image)
-        # min_height, min_width = self.MIN_RESOLUTION
-        # max_height, max_width = self.MAX_RESOLUTION
-        # if img.height < min_height or img.width < min_width:
-        #     raise MinResolutionErrorException('Разрешение изображение меньше минимального разрешения')
-        # if img.height > max_height or img.width > max_width:
-        #     raise MaxResolutionErrorException('Разрешение изображение больше максимального разрешения')
-        image = self.image
-        img = Image.open(image)
-        new_img = img.convert('RGB')
-        resized_new_img = new_img.resize((200, 200), Image.ANTIALIAS)
-        filestream = BytesIO()
-        resized_new_img.save(filestream, 'JPEG', quality=90)
-        filestream.seek(0)
-        name = '{}.{}'.format(*self.image.name.split('.'))
-        self.image = InMemoryUploadedFile(
-            filestream, 'ImageField', name, 'jpeg/image', sys.getsizeof(filestream), None
-        )
-        super().save(*args, **kwargs)
-
 
 class Notebook(Product):
     diagonal = models.CharField(max_length=255, verbose_name='Диагональ')
@@ -102,6 +82,9 @@ class Notebook(Product):
     def __str__(self):
         return "{} : {}".format(self.category.name, self.title)
 
+    def get_absolute_url(self):
+        return get_product_url(self, 'product_detail')
+
 
 class Smartphone(Product):
     diagonal = models.CharField(max_length=255, verbose_name='Диагональ')
@@ -109,13 +92,24 @@ class Smartphone(Product):
     resolution = models.CharField(max_length=255, verbose_name='Разрешение экрана')
     accum_volume = models.CharField(max_length=255, verbose_name='Объем батареи')
     ram = models.CharField(max_length=255, verbose_name='Оперативная память')
-    sd = models.BooleanField(default=True)
-    sd_volume_max = models.CharField(max_length=255, verbose_name='Максимальный объём встраиваемой памяти')
+    sd = models.BooleanField(default=True, verbose_name='Наличие SD-карты')
+    sd_volume_max = models.CharField(
+        max_length=255, verbose_name='Максимальный объём встраиваемой памяти'
+    )
     main_cam_mp = models.CharField(max_length=255, verbose_name='Главная камера')
     frontal_cam_mp = models.CharField(max_length=255, verbose_name='Фронтальная камера')
 
     def __str__(self):
         return '{} : {}'.format(self.category.name, self.title)
+
+    def get_absolute_url(self):
+        return get_product_url(self, 'product_detail')
+
+    # @property
+    # def sd(self):
+    #     if self.sd:
+    #         return 'Да'
+    #     return 'Нет'
 
 
 class CartProduct(models.Model):
@@ -128,7 +122,7 @@ class CartProduct(models.Model):
     final_price = models.DecimalField(max_digits=9, decimal_places=2, verbose_name='Общая Цена')
 
     def __str__(self):
-        return "Продукт: {} (для корзины)".format(self.product.title)
+        return "Продукт: {} (для корзины)".format(self.content_object.title)
 
 
 class Cart(models.Model):
@@ -136,6 +130,8 @@ class Cart(models.Model):
     products = models.ManyToManyField(CartProduct, blank=True, related_name='related_cart')
     total_products = models.PositiveIntegerField(default=0)
     final_price = models.DecimalField(max_digits=9, decimal_places=2, verbose_name='Обшая цена')
+    in_order = models.BooleanField(default=False)
+    for_anonymous_user = models.BooleanField(default=False)
 
     def __str__(self):
         return str(self.id)
